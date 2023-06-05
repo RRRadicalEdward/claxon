@@ -682,6 +682,7 @@ impl<R: ReadBytes> Iterator for StereoSamplesIter<R>
             {
                 Some(block) => {
                     self.current_block_duration = block.duration();
+                    self.current_sample = 0;
                     self.block = Some(block);
                 }
                 None => {
