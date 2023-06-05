@@ -7,11 +7,12 @@
 
 //! The `frame` module deals with the frames that make up a FLAC stream.
 
-use std::i32;
+use std::{i32, io};
+use std::io::ErrorKind;
 
 use crc::{Crc8Reader, Crc16Reader};
 use error::{Error, Result, fmt_err};
-use input::{Bitstream, ReadBytes};
+use input::{Bitstream, BufferedReader, ReadBytes};
 use subframe;
 
 #[derive(Clone, Copy)]
@@ -646,6 +647,70 @@ fn ensure_buffer_len_returns_buffer_with_new_len() {
         }
     }
 }
+
+pub struct StereoSamplesIter<R: ReadBytes>
+{
+    reader: FrameReader<R>,
+    block: Option<Block>,
+    current_sample: u32,
+    current_block_duration: u32,
+}
+
+impl<R: ReadBytes> StereoSamplesIter<R>
+{
+    pub fn new(reader: FrameReader<R>) -> Self
+    {
+        Self {
+            reader,
+            block: None,
+            current_sample: 0,
+            current_block_duration: 0,
+        }
+    }
+}
+
+impl<R: ReadBytes> Iterator for StereoSamplesIter<R>
+{
+    type Item = (i32, i32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_sample >= self.current_block_duration {
+            let mut buffer = self.block.take().map(|block| block.into_buffer()).unwrap_or(Vec::new());
+            buffer.clear();
+            let block = self.reader.read_next_or_eof(buffer).unwrap();
+            match block
+            {
+                Some(block) => {
+                    self.current_block_duration = block.duration();
+                    self.block = Some(block);
+                }
+                None => {
+                    return None
+                }
+            }
+        }
+
+        match &self.block
+        {
+            Some(block) => {
+                let ch_offset =  self.current_block_duration as usize;
+                let idx = self.current_sample as usize;
+
+                let samples = unsafe {
+                    let left = *block.buffer.get_unchecked(idx);
+                    let right = *block.buffer.get_unchecked(idx + ch_offset);
+                    (left, right)
+                };
+
+                self.current_sample += 1;
+
+                Some(samples)
+            },
+            None => None
+        }
+    }
+}
+
 
 impl<R: ReadBytes> FrameReader<R> {
     /// Creates a new frame reader that will yield at least one element.

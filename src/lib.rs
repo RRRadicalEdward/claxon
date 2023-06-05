@@ -70,10 +70,11 @@
 
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::mem;
 use std::path;
 use error::fmt_err;
-use frame::FrameReader;
+use frame::{FrameReader, StereoSamplesIter};
 use input::{BufferedReader, ReadBytes};
 use metadata::{MetadataBlock, MetadataBlockReader, StreamInfo, VorbisComment};
 
@@ -371,6 +372,26 @@ impl<R: io::Read> FlacReader<R> {
                 panic!("FlacReaderOptions::metadata_only must be false \
                        to be able to use FlacReader::blocks()"),
         }
+    }
+
+    pub fn into_blocks(self) -> FrameReader<BufferedReader<R>> {
+        match self.input {
+            FlacReaderState::Full(inp) => FrameReader::new(inp),
+            FlacReaderState::MetadataOnly(..) =>
+                panic!("FlacReaderOptions::metadata_only must be false \
+                       to be able to use FlacReader::blocks()"),
+        }
+    }
+
+    pub fn stereo_samples_iter(self) -> StereoSamplesIter<BufferedReader<R>>
+    {
+        let frame_reader = match self.input {
+            FlacReaderState::Full(inp) => FrameReader::new(inp),
+            FlacReaderState::MetadataOnly(..) =>
+                panic!("FlacReaderOptions::metadata_only must be false \
+                       to be able to use FlacReader::blocks()"),
+        };
+        StereoSamplesIter::new(frame_reader)
     }
 
     /// Returns an iterator over all samples.
